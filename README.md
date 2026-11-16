@@ -1,5 +1,7 @@
 # PS 批量置入 PNG 到 PSD
 
+**[在线介绍页](https://jaymik1947.github.io/ps-place-png/)** · **[下载 jsx](https://github.com/jaymik1947/ps-place-png/blob/main/menu-script/place-png-into-psd.jsx)**
+
 把渲染出来的 PNG 自动合成进同名 PSD，省掉手工拖图层。
 
 面向 3D 渲染 / 电商出图的工作流：渲染软件输出 `mat`（材质层）和 `obj`（物体层）两套 PNG，以及一张底图 PSD。这个工具按文件名把它们配对，把 PNG 作为普通像素图层叠进 PSD，收进一个隐藏的 `aov` 组，然后覆盖保存。
