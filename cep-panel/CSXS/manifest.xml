@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<ExtensionManifest Version="7.0" ExtensionBundleId="com.workbuddy.placepng" ExtensionBundleVersion="1.0.0" ExtensionBundleName="批量置入 PNG">
+  <ExtensionList>
+    <Extension Id="com.workbuddy.placepng.panel" Version="1.0.0" />
+  </ExtensionList>
+  <ExecutionEnvironment>
+    <HostList>
+      <Host Name="PHXS" Version="[22.0,99.9]" />
+      <Host Name="PHSP" Version="[22.0,99.9]" />
+    </HostList>
+    <LocaleList>
+      <Locale Code="All" />
+    </LocaleList>
+    <RequiredRuntimeList>
+      <RequiredRuntime Name="CSXS" Version="9.0" />
+    </RequiredRuntimeList>
+  </ExecutionEnvironment>
+  <DispatchInfoList>
+    <Extension Id="com.workbuddy.placepng.panel">
+      <DispatchInfo>
+        <Resources>
+          <MainPath>./host/index.html</MainPath>
+          <ScriptPath>./host/jsx/host.jsx</ScriptPath>
+          <CEFCommandLine>
+            <Parameter>--enable-nodejs</Parameter>
+            <Parameter>--mixed-context</Parameter>
+          </CEFCommandLine>
+        </Resources>
+        <Lifecycle>
+          <AutoVisible>true</AutoVisible>
+        </Lifecycle>
+        <UI>
+          <Type>Panel</Type>
+          <Menu>批量置入 PNG</Menu>
+          <Geometry>
+            <Size>
+              <Height>620</Height>
+              <Width>340</Width>
+            </Size>
+            <MinSize>
+              <Height>400</Height>
+              <Width>280</Width>
+            </MinSize>
+            <MaxSize>
+              <Height>1200</Height>
+              <Width>1200</Width>
+            </MaxSize>
+          </Geometry>
+        </UI>
+      </DispatchInfo>
+    </Extension>
+  </DispatchInfoList>
+</ExtensionManifest>
