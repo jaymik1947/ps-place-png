@@ -1,0 +1,231 @@
+:root {
+  --bg: #323232;
+  --fg: #d6d6d6;
+  --dim: rgba(255, 255, 255, 0.55);
+  --line: rgba(255, 255, 255, 0.16);
+  --fill: rgba(255, 255, 255, 0.05);
+  --fill-hover: rgba(255, 255, 255, 0.1);
+  --accent: #2680eb;
+  --ok: #59b95e;
+  --warn: #e8a33d;
+  --err: #e0605b;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--fg);
+  font-family: "Microsoft YaHei", "PingFang SC", -apple-system, sans-serif;
+  font-size: 12px;
+  user-select: none;
+}
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 8px;
+}
+
+.section { margin-bottom: 8px; flex: 0 0 auto; }
+
+.section.grow {
+  flex: 1 1 auto;
+  min-height: 70px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 文件夹区 */
+.drop {
+  border: 1px dashed var(--line);
+  border-radius: 4px;
+  padding: 14px 10px;
+  text-align: center;
+  cursor: pointer;
+  background-color: var(--fill);
+  transition: background-color 0.12s, border-color 0.12s;
+}
+
+.drop:hover {
+  background-color: var(--fill-hover);
+  border-color: var(--accent);
+}
+
+.drop-title { font-size: 12px; margin-bottom: 3px; }
+.drop-sub { font-size: 11px; color: var(--dim); }
+
+.path {
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--dim);
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+/* 子目录状态 */
+.dirs { display: flex; flex-direction: column; gap: 3px; }
+
+.dir-row {
+  display: flex;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 3px;
+  background-color: var(--fill);
+  font-size: 11px;
+}
+
+.dir-name { flex: 1 1 auto; }
+.dir-count { color: var(--dim); margin-left: 6px; }
+.dir-badge { margin-left: 6px; }
+.ok { color: var(--ok); }
+.warn { color: var(--warn); }
+.err { color: var(--err); }
+
+/* 列表 */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 5px;
+}
+
+.count { margin-left: auto; font-size: 11px; color: var(--dim); }
+
+.list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 3px;
+  min-height: 60px;
+}
+
+.list::-webkit-scrollbar { width: 8px; }
+.list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  padding: 4px 5px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.item:hover { background-color: var(--fill-hover); }
+.item input { margin: 0 6px 0 0; }
+.item .name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.item .tag {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.item.done { opacity: 0.55; }
+
+/* 选项 */
+.chk {
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+  margin-bottom: 4px;
+  cursor: pointer;
+}
+.chk input { margin: 0 6px 0 0; }
+
+/* 按钮 */
+button {
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--fg);
+  background-color: var(--fill);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: background-color 0.12s;
+}
+
+button:hover { background-color: var(--fill-hover); }
+button:disabled { opacity: 0.4; cursor: default; }
+
+button.primary {
+  width: 100%;
+  padding: 8px;
+  font-size: 12px;
+  background-color: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
+button.primary:hover { filter: brightness(1.1); }
+button.mini { padding: 3px 8px; }
+
+/* 进度 */
+.bar {
+  height: 5px;
+  border-radius: 3px;
+  background-color: var(--fill);
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  width: 0%;
+  background-color: var(--accent);
+  transition: width 0.12s linear;
+}
+
+.status {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--dim);
+  min-height: 14px;
+  word-break: break-all;
+  line-height: 1.35;
+}
+
+/* 日志 */
+.log {
+  height: 72px;
+  overflow-y: auto;
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--dim);
+  border-top: 1px solid var(--line);
+  padding-top: 5px;
+  word-break: break-all;
+}
+
+.log::-webkit-scrollbar { width: 8px; }
+.log::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+}
+
+.empty {
+  padding: 14px 8px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--dim);
+  opacity: 0.7;
+}
