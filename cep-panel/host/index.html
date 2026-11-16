@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="css/style.css" />
+  <title>批量置入 PNG</title>
+</head>
+<body>
+  <div class="wrap">
+
+    <div class="section">
+      <div id="dropZone" class="drop">
+        <div class="drop-title">点击选择父文件夹</div>
+        <div class="drop-sub">内部需含 mat_2 / obj_1 / rgba</div>
+      </div>
+      <div id="folderPath" class="path">未选择文件夹</div>
+    </div>
+
+    <div id="dirStatus" class="section dirs"></div>
+
+    <div class="section grow">
+      <div class="row">
+        <button id="btnAll" class="mini">全选</button>
+        <button id="btnNone" class="mini">全不选</button>
+        <span id="count" class="count">0 / 0</span>
+      </div>
+      <div id="list" class="list">
+        <div class="empty">选择文件夹后显示待处理列表</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <label class="chk"><input type="checkbox" id="optAlpha" checked />置入前先应用 Alpha 通道（没有则跳过）</label>
+      <label class="chk"><input type="checkbox" id="optSave" checked />覆盖保存原 PSD</label>
+    </div>
+
+    <div class="section">
+      <button id="btnRun" class="primary">开始执行</button>
+      <div class="bar"><div id="barFill" class="bar-fill"></div></div>
+      <div id="status" class="status">就绪</div>
+    </div>
+
+    <div class="section">
+      <div id="log" class="log"></div>
+    </div>
+
+  </div>
+
+  <script src="js/main.js"></script>
+</body>
+</html>
