@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PS 批量置入 PNG 到 PSD</title>
+<meta name="description" content="把渲染出的 mat / obj 图层 PNG 自动合成进同名 PSD，一键完成，覆盖保存。" />
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-soft: #10161d;
+    --card: #161b22;
+    --card-hover: #1c232c;
+    --line: #30363d;
+    --fg: #e6edf3;
+    --fg-dim: #8b949e;
+    --fg-dimmer: #6e7681;
+    --accent: #2f81f7;
+    --accent-soft: #1f6feb;
+    --purple: #8957e5;
+    --green: #3fb950;
+    --orange: #d29922;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+
+  /* ---------- 顶部光晕 ---------- */
+  .glow {
+    position: fixed;
+    top: -320px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 900px;
+    height: 600px;
+    background: radial-gradient(ellipse at center,
+      rgba(47, 129, 247, 0.22) 0%,
+      rgba(137, 87, 229, 0.10) 42%,
+      transparent 68%);
+    filter: blur(48px);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ---------- Hero ---------- */
+  header {
+    position: relative;
+    z-index: 1;
+    padding: 96px 0 72px;
+    text-align: center;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 13px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--fg-dim);
+    background: rgba(22, 27, 34, 0.7);
+    margin-bottom: 26px;
+  }
+
+  .badge .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+  }
+
+  h1 {
+    font-size: clamp(32px, 5vw, 52px);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    font-weight: 650;
+    margin-bottom: 20px;
+  }
+
+  h1 .grad {
+    background: linear-gradient(100deg, #58a6ff 0%, #a371f7 55%, #db61a2 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .lede {
+    font-size: clamp(15px, 1.8vw, 18px);
+    color: var(--fg-dim);
+    max-width: 660px;
+    margin: 0 auto 34px;
+  }
+
+  .cta {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 22px;
+    border-radius: 7px;
+    font-size: 14px;
+    font-weight: 550;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--fg);
+    transition: all 0.16s ease;
+  }
+
+  .btn:hover { background: var(--card-hover); text-decoration: none; transform: translateY(-1px); }
+
+  .btn.primary {
+    background: var(--accent-soft);
+    border-color: var(--accent-soft);
+    color: #fff;
+  }
+
+  .btn.primary:hover { background: #2f81f7; box-shadow: 0 6px 24px rgba(47, 129, 247, 0.35); }
+
+  /* ---------- 区块通用 ---------- */
+  section { position: relative; z-index: 1; padding: 64px 0; }
+
+  .sec-head { margin-bottom: 34px; }
+
+  .sec-label {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  h2 {
+    font-size: clamp(22px, 3vw, 30px);
+    font-weight: 620;
+    letter-spacing: -0.01em;
+    margin-bottom: 12px;
+  }
+
+  .sec-desc { color: var(--fg-dim); font-size: 15px; max-width: 620px; }
+
+  /* ---------- 流程对比 ---------- */
+  .flow {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 20px;
+    align-items: center;
+    margin-top: 34px;
+  }
+
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px;
+  }
+
+  .panel-title {
+    font-size: 12px;
+    color: var(--fg-dimmer);
+    font-family: var(--mono);
+    margin-bottom: 14px;
+    letter-spacing: 0.05em;
+  }
+
+  .tree { font-family: var(--mono); font-size: 12.5px; line-height: 2; }
+
+  .tree .dir { color: #79c0ff; }
+  .tree .file { color: var(--fg-dim); }
+  .tree .note { color: var(--fg-dimmer); }
+
+  .layer {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 10px;
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    margin-bottom: 4px;
+  }
+
+  .layer.group { background: rgba(137, 87, 229, 0.12); color: #d2a8ff; }
+  .layer.child { margin-left: 26px; background: rgba(47, 129, 247, 0.10); color: #79c0ff; }
+  .layer.base { background: rgba(63, 185, 80, 0.10); color: #7ee787; }
+
+  .eye {
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    border: 1.5px solid currentColor;
+    flex: 0 0 auto;
+    position: relative;
+    opacity: 0.9;
+  }
+
+  .eye.off { opacity: 0.28; }
+  .eye.off::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    background: linear-gradient(45deg, transparent 45%, currentColor 45%, currentColor 55%, transparent 55%);
+  }
+
+  .arrow {
+    font-size: 22px;
+    color: var(--fg-dimmer);
+    text-align: center;
+  }
+
+  .hint {
+    margin-top: 18px;
+    font-size: 13px;
+    color: var(--fg-dim);
+    padding-left: 14px;
+    border-left: 2px solid var(--line);
+  }
+
+  /* ---------- 版本卡片 ---------- */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    margin-top: 32px;
+  }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 24px;
+    transition: all 0.18s ease;
+  }
+
+  .card:hover { border-color: #484f58; transform: translateY(-2px); }
+
+  .card h3 {
+    font-size: 17px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+
+  .tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: rgba(47, 129, 247, 0.15);
+    color: #79c0ff;
+    font-weight: 400;
+  }
+
+  .card p { font-size: 13.5px; color: var(--fg-dim); margin-bottom: 14px; }
+
+  .path {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    background: var(--bg-soft);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 7px 10px;
+    color: #a5d6ff;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  /* ---------- 特性列表 ---------- */
+  .feats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+    margin-top: 30px;
+  }
+
+  .feat {
+    display: flex;
+    gap: 13px;
+    padding: 18px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 9px;
+  }
+
+  .feat .ico {
+    flex: 0 0 auto;
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    background: rgba(47, 129, 247, 0.12);
+    display: grid;
+    place-items: center;
+    font-size: 15px;
+  }
+
+  .feat h4 { font-size: 14px; font-weight: 600; margin-bottom: 3px; }
+  .feat p { font-size: 12.5px; color: var(--fg-dim); line-height: 1.55; }
+
+  /* ---------- 代码块 ---------- */
+  pre {
+    background: var(--bg-soft);
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: #c9d1d9;
+    margin: 14px 0;
+  }
+
+  pre .c { color: var(--fg-dimmer); }
+  pre .k { color: #ff7b72; }
+  pre .s { color: #a5d6ff; }
+
+  .steps { counter-reset: step; margin-top: 10px; }
+
+  .step {
+    position: relative;
+    padding-left: 40px;
+    padding-bottom: 26px;
+    border-left: 1px solid var(--line);
+    margin-left: 13px;
+  }
+
+  .step:last-child { border-left-color: transparent; padding-bottom: 0; }
+
+  .step::before {
+    counter-increment: step;
+    content: counter(step);
+    position: absolute;
+    left: -13px;
+    top: -2px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--card);
+    border: 1px solid var(--line);
+    display: grid;
+    place-items: center;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+  }
+
+  .step h4 { font-size: 14.5px; font-weight: 600; margin-bottom: 5px; }
+  .step p { font-size: 13px; color: var(--fg-dim); }
+
+  /* ---------- 提示条 ---------- */
+  .alert {
+    display: flex;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 8px;
+    border: 1px solid rgba(210, 153, 34, 0.35);
+    background: rgba(210, 153, 34, 0.08);
+    font-size: 13px;
+    color: #e3b341;
+    margin: 18px 0;
+  }
+
+  .alert strong { color: #f0c674; }
+
+  /* ---------- 表格 ---------- */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin-top: 18px;
+  }
+
+  th, td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  th {
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--fg-dimmer);
+    font-weight: 500;
+  }
+
+  td:first-child { font-family: var(--mono); color: #ffa657; font-size: 12.5px; }
+  td { color: var(--fg-dim); }
+  tr:hover td { background: rgba(255, 255, 255, 0.02); }
+
+  /* ---------- 页脚 ---------- */
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 34px 0;
+    margin-top: 40px;
+    text-align: center;
+    font-size: 12.5px;
+    color: var(--fg-dimmer);
+    position: relative;
+    z-index: 1;
+  }
+
+  footer a { color: var(--fg-dim); }
+
+  @media (max-width: 720px) {
+    .flow { grid-template-columns: 1fr; }
+    .arrow { transform: rotate(90deg); }
+    header { padding: 64px 0 48px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="glow"></div>
+
+<header class="wrap">
+  <div class="badge">
+    <span class="dot"></span>
+    Photoshop 2022+ · Windows
+  </div>
+
+  <h1>
+    PNG 自动叠进 PSD<br />
+    <span class="grad">一次跑完一整批</span>
+  </h1>
+
+  <p class="lede">
+    把渲染输出的 mat / obj 图层按文件名自动配对，作为像素图层置入同名 PSD，
+    收进隐藏的 aov 组，覆盖保存。不用再一张张拖图层。
+  </p>
+
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/jaymik1947/ps-place-png">GitHub 仓库</a>
+    <a class="btn" href="#install">安装步骤</a>
+  </div>
+</header>
+
+<section class="wrap">
+  <div class="sec-head">
+    <div class="sec-label">工作流</div>
+    <h2>三个文件夹进，一个 PSD 出</h2>
+    <p class="sec-desc">文件名相同即配对，扩展名之外的部分做 key，忽略大小写。</p>
+  </div>
+
+  <div class="flow">
+    <div class="panel">
+      <div class="panel-title">工作目录</div>
+      <div class="tree">
+<span class="dir">工作目录/</span>
+├── <span class="dir">mat_2/</span>   <span class="file">未标题_11200x1200.png</span>  <span class="note">← 材质</span>
+├── <span class="dir">obj_1/</span>   <span class="file">未标题_11200x1200.png</span>  <span class="note">← 物体</span>
+└── <span class="dir">rgba/</span>    <span class="file">未标题_11200x1200.psd</span>  <span class="note">← 底图</span>
+      </div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="panel">
+      <div class="panel-title">处理后的图层</div>
+      <div class="layer group"><span class="eye off"></span>aov</div>
+      <div class="layer child"><span class="eye off"></span>obj</div>
+      <div class="layer child"><span class="eye off"></span>mat</div>
+      <div class="layer base"><span class="eye"></span>背景</div>
+    </div>
+  </div>
+
+  <div class="hint">
+    aov 组默认隐藏，打开 PSD 只看到背景层。需要检查 AOV 时点开组即可，图层内容完好无损。
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="sec-head">
+    <div class="sec-label">两个版本</div>
+    <h2>选一个顺手的入口</h2>
+    <p class="sec-desc">核心逻辑完全一致，CEP 面板直接复用同一份 ExtendScript，只是多了个前端壳。</p>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <h3>菜单脚本版 <span class="tag">推荐入门</span></h3>
+      <p>零依赖，单个 .jsx 文件。选完目录弹一个确认框，然后全自动跑完，适合一次性批量。</p>
+      <div class="path">文件 → 脚本 → 批量置入PNG到PSD</div>
+    </div>
+
+    <div class="card">
+      <h3>CEP 面板版 <span class="tag">常驻侧栏</span></h3>
+      <p>面板常驻 PS 侧边栏，文件列表逐项勾选，实时进度条，每项单独标记完成或失败原因。</p>
+      <div class="path">窗口 → 扩展（旧版）→ 批量置入 PNG</div>
+    </div>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="sec-head">
+    <div class="sec-label">能力</div>
+    <h2>它替你做的六件事</h2>
+  </div>
+
+  <div class="feats">
+    <div class="feat">
+      <div class="ico">🔗</div>
+      <div>
+        <h4>按名配对</h4>
+        <p>去掉扩展名转小写做 key，png / tif / jpg 都认，png 优先。</p>
+      </div>
+    </div>
+    <div class="feat">
+      <div class="ico">🎭</div>
+      <div>
+        <h4>Alpha 通道应用</h4>
+        <p>PSD 里若有名为 Alpha 的通道，自动载入为选区生成蒙版；没有就跳过。</p>
+      </div>
+    </div>
+    <div class="feat">
+      <div class="ico">📐</div>
+      <div>
+        <h4>原点对齐</h4>
+        <p>置入后按 bounds 把左上角归零，与画布严丝合缝，不做缩放。</p>
+      </div>
+    </div>
+    <div class="feat">
+      <div class="ico">📦</div>
+      <div>
+        <h4>收进 aov 组</h4>
+        <p>两个图层自动归组并隐藏，画面上只留背景层。</p>
+      </div>
+    </div>
+    <div class="feat">
+      <div class="ico">🛡️</div>
+      <div>
+        <h4>失败不落盘</h4>
+        <p>任一图层置入失败，该 PSD 整体不保存，原文件保持完好。</p>
+      </div>
+    </div>
+    <div class="feat">
+      <div class="ico">🔁</div>
+      <div>
+        <h4>可重复运行</h4>
+        <p>每次先清掉已有的 mat / obj 图层，跑多少次结果都一样。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="wrap" id="install">
+  <div class="sec-head">
+    <div class="sec-label">安装</div>
+    <h2>菜单脚本版</h2>
+    <p class="sec-desc">五分钟搞定，之后一直在脚本菜单里。</p>
+  </div>
+
+  <div class="steps">
+    <div class="step">
+      <h4>下载 jsx</h4>
+      <p>从仓库拿 <code>menu-script/place-png-into-psd.jsx</code>。</p>
+    </div>
+    <div class="step">
+      <h4>转成 GBK 编码</h4>
+      <p>这一步不能省。ExtendScript 在中文 Windows 按 CP936 解析脚本，存 UTF-8 会让所有中文提示变乱码。</p>
+<pre><span class="c"># Windows PowerShell，在同目录执行</span>
+[IO.File]::WriteAllText(<span class="s">'批量置入PNG到PSD.jsx'</span>, `
+  [IO.File]::ReadAllText(<span class="s">'place-png-into-psd.jsx'</span>,<span class="s">'utf8'</span>), `
+  [Text.Encoding]::GetEncoding(<span class="k">936</span>))</pre>
+    </div>
+    <div class="step">
+      <h4>放进 PS 脚本目录</h4>
+      <p>需要管理员权限。</p>
+<pre>C:\Program Files\Adobe\Adobe Photoshop 20xx\Presets\Scripts\</pre>
+    </div>
+    <div class="step">
+      <h4>重启 Photoshop</h4>
+      <p>菜单里出现 <code>文件 → 脚本 → 批量置入PNG到PSD</code> 就成功了。</p>
+    </div>
+  </div>
+
+  <div class="alert">
+    <span>⚠️</span>
+    <div><strong>覆盖保存不可逆。</strong>第一次先拿 3～5 组文件试跑，确认图层顺序和 Alpha 方向都对，再处理全量。</div>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="sec-head">
+    <div class="sec-label">配置</div>
+    <h2>改两行就能适配你的目录</h2>
+    <p class="sec-desc">两份 jsx 顶部都有配置区，目录名、图层名、组名都能改。</p>
+  </div>
+
+  <table>
+    <thead>
+      <tr><th>配置项</th><th>默认</th><th>作用</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>MAT_DIR</td><td>mat_2</td><td>材质层所在子文件夹</td></tr>
+      <tr><td>OBJ_DIR</td><td>obj_1</td><td>物体层所在子文件夹</td></tr>
+      <tr><td>PSD_DIR</td><td>rgba</td><td>目标 PSD 所在子文件夹</td></tr>
+      <tr><td>AOV_GROUP</td><td>aov</td><td>两者被收进的组名，该组隐藏</td></tr>
+      <tr><td>ALPHA_NAME</td><td>alpha</td><td>要应用的通道名，找不到跳过</td></tr>
+      <tr><td>ALPHA_INVERT</td><td>false</td><td>Alpha 极性相反时改 true</td></tr>
+      <tr><td>SAVE</td><td>true</td><td>是否覆盖保存原 PSD</td></tr>
+      <tr><td>TEST_FIRST_ONLY</td><td>false</td><td>只处理第一个，调试用</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="wrap">
+  <div class="sec-head">
+    <div class="sec-label">二次开发</div>
+    <h2>拿 AI 改这个项目</h2>
+    <p class="sec-desc">
+      仓库里带了一份完整的踩坑记录和修改指引，任何能读代码的 AI 拿到都能接手。
+    </p>
+  </div>
+
+  <pre><span class="c"># 直接把仓库丢给 AI，附上这段背景</span>
+
+两个版本共用一套逻辑：
+  menu-script/place-png-into-psd.jsx   ExtendScript 菜单脚本
+  cep-panel/host/js/main.js            CEP 前端（Chromium）
+  cep-panel/host/jsx/host.jsx          CEP 后端（ExtendScript）
+
+硬约束：
+  · ExtendScript 是 ES3，不能用 let/const/箭头函数/JSON 对象
+  · 两份 jsx 是同一逻辑的两份拷贝，改逻辑必须同步
+  · 菜单版交付前必须转 GBK，CEP 版保持 UTF-8
+  · evalScript 不能传非 ASCII，中文必须 URL 编码
+  · 跨文档复制图层用 duplicate(destDoc)，别传第二个参数</pre>
+
+  <p class="sec-desc" style="margin-top: 6px">
+    仓库 README 里有更详细的坑位说明和「想改 X 该动哪个函数」对照表。
+  </p>
+</section>
+
+<footer>
+  <div class="wrap">
+    MIT License · <a href="https://github.com/jaymik1947/ps-place-png">github.com/jaymik1947/ps-place-png</a>
+  </div>
+</footer>
+
+</body>
+</html>
