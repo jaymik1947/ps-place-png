@@ -42,6 +42,7 @@ var CONFIG = {
     OBJ_LAYER: "obj",
     AOV_GROUP: "aov",
     REMOVE_EXISTING: true,
+    CLEAN_OTHER_LAYERS: true,
     SAVE: true,
     CLOSE_AFTER_SAVE: true,
     TEST_FIRST_ONLY: false,
@@ -117,6 +118,9 @@ function main() {
     if (CONFIG.APPLY_ALPHA) {
         msg += "置入前若该 PSD 带名为 " + CONFIG.ALPHA_CHANNEL_NAME + " 的通道，先把它应用到背景图层；没有则跳过。\n";
     }
+    if (CONFIG.CLEAN_OTHER_LAYERS) {
+        msg += "背景层和 " + CONFIG.AOV_GROUP + " 组以外的其他图层会被删除。\n";
+    }
     msg += "（" + CONFIG.MAT_LAYER + " 在下、" + CONFIG.OBJ_LAYER + " 在上），";
     msg += CONFIG.SAVE ? "然后【覆盖保存】原 PSD。" : "不保存。";
     msg += "\n\n重复运行会先删除已有的 " + CONFIG.MAT_LAYER + " / " + CONFIG.OBJ_LAYER + " 图层。";
@@ -135,7 +139,9 @@ function main() {
         sizeWarn: [],
         layerFail: [],
         alreadyOpen: [],
-        alphaApplied: []
+        alphaApplied: [],
+        alphaFail: [],
+        cleaned: 0
     };
     var usedMat = {};
     var usedObj = {};
@@ -233,20 +239,40 @@ function processPsd(psdFile, matFile, objFile, report) {
 
     try {
         app.activeDocument = doc;
+        // 上一个文件可能残留选区，先清干净
+        try {
+            doc.selection.deselect();
+        } catch (ignoreResidualSelection) {}
 
         if (CONFIG.REMOVE_EXISTING) {
+            // 先整组删掉上一轮的 aov（连带里面的旧图层），再扫散落在别处的同名图层
+            removeGroupsByName(doc, CONFIG.AOV_GROUP);
             removeLayersByName(doc, CONFIG.MAT_LAYER);
             removeLayersByName(doc, CONFIG.OBJ_LAYER);
         }
 
-        // 置入 PNG 之前，先把 PSD 里的 Alpha 通道应用到背景图层。
-        // 没有名为 Alpha 的通道就原样跳过；有通道但应用失败则整个 PSD 不保存，
-        // 避免把“解锁了但没蒙版”的半成品写回原文件。
+        // 可选：把背景层以外的其他图层全清掉。
+        // 应对旧图层被改过名（如 yjq_032000x2000）导致按名删除失效的情况。
+        if (CONFIG.CLEAN_OTHER_LAYERS) {
+            var nCleaned = cleanOtherLayers(doc);
+            if (nCleaned > 0) {
+                report.cleaned += nCleaned;
+            }
+        }
+
+        // 置入之前，先把 PSD 里的 Alpha 通道应用到背景图层。
+        // 没有该通道就跳过；应用失败也不阻断置入，只记进报告。
         if (CONFIG.APPLY_ALPHA) {
             try {
                 applyAlphaToPsd(doc, report, psdFile.name);
             } catch (eAlpha) {
-                throw new Error("Alpha 通道应用失败：" + errMsg(eAlpha));
+                report.alphaFail.push(psdFile.name + "  →  【应用 Alpha】" + errMsg(eAlpha));
+                try {
+                    doc.selection.deselect();
+                } catch (ignoreAlphaCleanup) {}
+                try {
+                    app.activeDocument = doc;
+                } catch (ignoreAlphaReactive) {}
             }
         }
 
@@ -339,14 +365,12 @@ function groupIntoAov(doc, matLayer, objLayer) {
 }
 
 function removeGroupsByName(doc, name) {
-    for (var i = doc.layers.length - 1; i >= 0; i--) {
-        var ly = doc.layers[i];
-        if (ly.typename === "LayerSet" && ly.name === name) {
-            try {
-                ly.remove();
-            } catch (ignoreRemove) {}
-        }
+    var targets = [];
+    collectLayersByName(doc, name, true, targets);
+    for (var i = targets.length - 1; i >= 0; i--) {
+        unlockAndRemove(targets[i]);
     }
+    return targets.length;
 }
 
 function placeAsLayer(destDoc, imgFile, layerName, report) {
@@ -355,6 +379,24 @@ function placeAsLayer(destDoc, imgFile, layerName, report) {
         srcDoc = app.open(imgFile);
         if (!srcDoc) {
             throw new Error("无法打开 " + imgFile.name);
+        }
+
+        // 位深 / 色彩模式不一致时 duplicate 必然失败，提前给出明确原因
+        var modeOk = true;
+        var bitsOk = true;
+        var modeMsg = "";
+        var bitsMsg = "";
+        try {
+            modeOk = String(srcDoc.mode) === String(destDoc.mode);
+            bitsOk = String(srcDoc.bitsPerChannel) === String(destDoc.bitsPerChannel);
+            modeMsg = String(srcDoc.mode) + " → " + String(destDoc.mode);
+            bitsMsg = String(srcDoc.bitsPerChannel) + " → " + String(destDoc.bitsPerChannel);
+        } catch (ignoreMeta) {}
+        if (!modeOk) {
+            throw new Error("色彩模式不一致（PNG → PSD）：" + modeMsg);
+        }
+        if (!bitsOk) {
+            throw new Error("位深不一致（PNG → PSD）：" + bitsMsg);
         }
 
         var sw = srcDoc.width.as("px");
@@ -609,30 +651,156 @@ function findOpenDocument(file) {
     return null;
 }
 
-function removeLayersByName(doc, name) {
-    for (var i = doc.layers.length - 1; i >= 0; i--) {
-        var ly = doc.layers[i];
-        if (ly.typename === "LayerSet") {
-            removeLayersInSet(ly, name);
-        } else if (ly.name === name) {
-            try {
-                ly.remove();
-            } catch (ignoreRemove) {}
+/*
+ * 图层 / 组清理
+ * ---------------
+ * 旧实现边遍历 doc.layers 边删除，而 doc.layers 是活集合，删完索引就漂移，
+ * 导致旧图层漏删（表现为 aov 组外还留着上一轮的 mat / obj）。
+ * 这里改成：先拍快照收集目标，再统一删除。
+ */
+
+function layerNameMatch(actual, wanted) {
+    if (actual === null || actual === undefined) return false;
+    var a = String(actual).replace(/^\s+|\s+$/g, "").toLowerCase();
+    var w = String(wanted).replace(/^\s+|\s+$/g, "").toLowerCase();
+    if (!a || !w) return false;
+    if (a === w) return true;
+    // Photoshop 会给重名图层自动加 “ 副本” / “ copy” 后缀
+    if (a.indexOf(w + " ") === 0) return true;
+    if (a.indexOf(w + "副本") === 0) return true;
+    return false;
+}
+
+function collectLayersByName(container, name, wantGroups, out) {
+    var list = null;
+    try {
+        list = container.layers;
+    } catch (eLayers) {
+        return;
+    }
+    if (!list) return;
+
+    var snapshot = [];
+    var total = 0;
+    try {
+        total = list.length;
+    } catch (eLen) {
+        return;
+    }
+    for (var i = 0; i < total; i++) {
+        try {
+            snapshot.push(list[i]);
+        } catch (eItem) {}
+    }
+
+    for (var k = 0; k < snapshot.length; k++) {
+        var ly = snapshot[k];
+        var isGroup = false;
+        try {
+            isGroup = ly.typename === "LayerSet";
+        } catch (eType) {}
+
+        if (isGroup) {
+            if (wantGroups) {
+                if (layerNameMatch(ly.name, name)) {
+                    out.push(ly);
+                } else {
+                    collectLayersByName(ly, name, true, out);
+                }
+            } else {
+                collectLayersByName(ly, name, false, out);
+            }
+        } else if (!wantGroups && layerNameMatch(ly.name, name)) {
+            out.push(ly);
         }
     }
 }
 
-function removeLayersInSet(set, name) {
-    for (var i = set.layers.length - 1; i >= 0; i--) {
-        var ly = set.layers[i];
-        if (ly.typename === "LayerSet") {
-            removeLayersInSet(ly, name);
-        } else if (ly.name === name) {
-            try {
-                ly.remove();
-            } catch (ignoreRemove2) {}
-        }
+function unlockAndRemove(item) {
+    try {
+        if (item.allLocked) item.allLocked = false;
+    } catch (eLock) {}
+    try {
+        item.remove();
+        return true;
+    } catch (eRemove) {
+        return false;
     }
+}
+
+function removeLayersByName(doc, name) {
+    var targets = [];
+    collectLayersByName(doc, name, false, targets);
+    var removed = 0;
+    for (var i = targets.length - 1; i >= 0; i--) {
+        if (unlockAndRemove(targets[i])) removed++;
+    }
+    return removed;
+}
+
+/**
+ * 删掉除背景层和 aov 组以外的所有顶层图层。
+ * 用于旧图层被改过名（如 yjq_032000x2000）的情况——按名删找不到它们，
+ * 但它们在合成结果里就是多余的重复内容。
+ * 返回删除数量。
+ */
+function cleanOtherLayers(doc) {
+    var snapshot = [];
+    var total = 0;
+    try {
+        total = doc.layers.length;
+    } catch (eLen) {
+        return 0;
+    }
+    if (total === 0) return 0;
+    for (var i = 0; i < total; i++) {
+        try {
+            snapshot.push(doc.layers[i]);
+        } catch (eItem) {}
+    }
+    if (!snapshot.length) return 0;
+
+    // 最底层无论如何都保留——它就是背景。
+    // 背景层一旦被 Alpha 处理解锁，isBackgroundLayer 就变成 false，
+    // 只看这个属性会把背景层一起删掉，然后 mat 顶上来冒充背景。
+    var lowestIndex = snapshot.length - 1;
+
+    var targets = [];
+    for (var k = 0; k < snapshot.length; k++) {
+        if (k === lowestIndex) continue;
+
+        var ly = snapshot[k];
+
+        var isBg = false;
+        try {
+            isBg = ly.isBackgroundLayer === true;
+        } catch (eBg) {}
+        if (!isBg) {
+            try {
+                isBg = layerNameMatch(ly.name, "背景") || layerNameMatch(ly.name, "background");
+            } catch (eNameBg) {}
+        }
+        if (isBg) continue;
+
+        var isAov = false;
+        try {
+            isAov = (ly.typename === "LayerSet") && layerNameMatch(ly.name, CONFIG.AOV_GROUP);
+        } catch (eAov) {}
+        if (isAov) continue;
+
+        targets.push(ly);
+    }
+
+    // 保险：如果算出「所有图层都该删」，说明判据失效，宁可不清理
+    if (targets.length >= snapshot.length) {
+        return 0;
+    }
+
+    var removed = 0;
+    for (var j = targets.length - 1; j >= 0; j--) {
+        if (unlockAndRemove(targets[j])) removed++;
+    }
+    return removed;
 }
 
 function buildMap(folder) {
@@ -693,6 +861,9 @@ function buildSummary(secs, totalPsd, pairable, report, unusedMat, unusedObj) {
     s += "PSD 总数：" + totalPsd + "  可配对：" + pairable + "\n";
     s += "成功：" + report.ok.length + "    失败：" + report.fail.length + "\n";
     s += "图层：" + CONFIG.MAT_LAYER + " 在下、" + CONFIG.OBJ_LAYER + " 在上（普通像素图层）\n";
+    if (report.cleaned > 0) {
+        s += "已清理多余图层：" + report.cleaned + " 个\n";
+    }
     if (CONFIG.APPLY_ALPHA) {
         s += "Alpha 通道：" + report.alphaApplied.length + " 个 PSD 已应用\n";
     }
@@ -704,6 +875,10 @@ function buildSummary(secs, totalPsd, pairable, report, unusedMat, unusedObj) {
     if (report.layerFail.length > 0) {
         s += "\n[图层置入失败明细] " + report.layerFail.length + " 条\n";
         s += "  " + joinLimited(report.layerFail, 6) + "\n";
+    }
+    if (report.alphaFail.length > 0) {
+        s += "\n[Alpha 应用失败，已跳过，未影响置入] " + report.alphaFail.length + " 条\n";
+        s += "  " + joinLimited(report.alphaFail, 6) + "\n";
     }
     if (report.sizeWarn.length > 0) {
         s += "\n[尺寸不一致] " + report.sizeWarn.length + " 个（已按左上角对齐置入）\n";
