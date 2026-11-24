@@ -80,6 +80,7 @@ function cacheDom() {
     btnNone: document.getElementById("btnNone"),
     btnRun: document.getElementById("btnRun"),
     optAlpha: document.getElementById("optAlpha"),
+    optClean: document.getElementById("optClean"),
     optSave: document.getElementById("optSave"),
     barFill: document.getElementById("barFill"),
     status: document.getElementById("status"),
@@ -294,12 +295,13 @@ async function run() {
 
   const applyAlpha = el.optAlpha.checked ? "1" : "0";
   const saveFile = el.optSave.checked ? "1" : "0";
+  const cleanOthers = el.optClean.checked ? "1" : "0";
 
   for (let i = 0; i < targets.length; i++) {
     const item = targets[i];
     setProgress(Math.round((i / targets.length) * 100), `(${i + 1}/${targets.length}) ${item.name}`);
 
-    const script = `PPS_run(${item.idx},${applyAlpha},${saveFile})`;
+    const script = `PPS_run(${item.idx},${applyAlpha},${saveFile},${cleanOthers})`;
 
     const raw = await evalScript(script);
 
@@ -313,7 +315,13 @@ async function run() {
     if (r.ok) {
       item.result = "ok";
       okCount++;
-      log(`✓ ${item.name}${r.alpha ? "  （Alpha 已应用）" : ""}`);
+      let extra = "";
+      if (r.alpha) extra += "  Alpha 已应用";
+      if (r.cleaned) extra += `  清理${r.cleaned}个多余图层`;
+      log(`✓ ${item.name}${extra}`);
+      if (Array.isArray(r.layers) && r.layers.length) {
+        log(`   最终图层：${r.layers.map(safeDecode).join(" / ")}`);
+      }
     } else {
       item.result = "fail";
       item.error = safeDecode(r.error);
