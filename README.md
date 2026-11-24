@@ -33,7 +33,7 @@ aov              ← 图层组，默认隐藏
 | 版本 | 入口 | 特点 |
 |---|---|---|
 | 菜单脚本版 | `文件 → 脚本 → 批量置入PNG到PSD` | 零依赖，双击即用，弹出确认框后全自动跑完 |
-| CEP 面板版 | `窗口 → 扩展（旧版）→ 批量置入 PNG` | 常驻侧边栏，有文件列表、逐项勾选、实时进度条 |
+| CEP 面板版 | `窗口 → 扩展（旧版）→ 批量置入 PNG` | 常驻侧边栏，有文件列表、逐项勾选、实时进度条、处理完打印最终图层结构 |
 
 核心逻辑完全一致，CEP 面板版直接调用同一份 ExtendScript 逻辑，只是多了个前端壳。
 
@@ -119,17 +119,21 @@ HKEY_CURRENT_USER\Software\Adobe\CSXS.12
 | `ALPHA_INVERT` | `false` | Alpha 极性相反时设为 `true` |
 | `SAVE` | `true` | 是否覆盖保存原 PSD |
 | `REMOVE_EXISTING` | `true` | 置入前删掉已有的同名图层，保证可重复运行 |
+| `CLEAN_OTHER_LAYERS` | `true` | 删掉背景层和 aov 组以外的所有图层（面板版有对应勾选框） |
 | `TEST_FIRST_ONLY` | `false` | 只处理第一个可配对文件，用于调试 |
+
+> `APPLY_ALPHA`、`CLEAN_OTHER_LAYERS` 在 CEP 面板版是界面上的勾选框，不用改代码。
 
 ## 核心逻辑
 
 1. **配对** — 扫描 `PSD_DIR` 下所有 `.psd`，取文件名去掉扩展名、转小写作为 key，去 `MAT_DIR` 和 `OBJ_DIR` 里找同名图片（png/tif/jpg 都接受，png 优先）。
-2. **打开 PSD** — `app.open()`，切到前台。
-3. **清旧图层** — 删掉文档里已存在的 `mat` / `obj` 图层，保证重复运行不会叠加。
-4. **应用 Alpha** — 扫 `doc.channels`，找名为 `Alpha`（或 `Alpha 1` 这类默认名）的通道。找到就载入为选区，给背景层生成图层蒙版；找不到就跳过。背景层是锁定的，先 `isBackgroundLayer = false` 解锁才能带透明。
-5. **置入 PNG** — 打开 PNG → 取 `activeLayer` → `duplicate(destDoc)` 复制到目标文档 → 重命名 → 按 `bounds` 把左上角归零。
-6. **收进 aov 组** — `layerSets.add()` 建组 → 两个图层 `move(group, INSIDE)` → `obj` 移到 `mat` 之上 → `group.visible = false`。
-7. **保存** — `doc.save()` 覆盖原文件，然后 `close(DONOTSAVECHANGES)` 关闭。
+2. **打开 PSD** — `app.open()`，切到前台，先 `deselect()` 清掉可能残留的选区。
+3. **清旧图层** — 先整体删掉上一轮的 `aov` 组（连带组内旧图层），再扫散落在别处的同名 `mat` / `obj`。
+4. **清理多余图层**（可选，默认开）— 删掉背景层和 `aov` 组以外的所有顶层图层。应对旧图层被改过名（如 `yjq_032000x2000`）导致按名删除失效的情况。
+5. **应用 Alpha** — 扫 `doc.channels`，找名为 `Alpha`（或 `Alpha 1` 这类默认名）的通道。找到就载入为选区，给背景层生成图层蒙版；找不到就跳过。背景层是锁定的，先 `isBackgroundLayer = false` 解锁才能带透明。
+6. **置入 PNG** — 打开 PNG → 检查位深/色彩模式是否与 PSD 一致 → `duplicate(destDoc)` 复制 → 重命名 → 按 `bounds` 把左上角归零。
+7. **收进 aov 组** — `layerSets.add()` 建组 → 两个图层 `move(group, INSIDE)` → `obj` 移到 `mat` 之上 → `group.visible = false`。
+8. **保存** — `doc.save()` 覆盖原文件，然后 `close(DONOTSAVECHANGES)` 关闭。
 
 任一步失败则该 PSD 整体不保存，原文件保持完好。
 
@@ -177,6 +181,58 @@ ExtendScript 没有 `encodeURIComponent`，`host.jsx` 里手写了一套 UTF-8 �
 
 只关掉面板再打开不够——`host.jsx` 在 PS 启动时就注入 ExtendScript 引擎了，不重启的话引擎里跑的还是旧函数。
 
+### 语言与 API 陷阱（血泪）
+
+**6. `final` 是 ES3 保留字，不能当属性名**
+
+```javascript
+// 错：整个 jsx 解析失败，所有函数都不存在
+return { alpha: true, final: list };
+
+// 对
+return { alpha: true, layerNames: list };
+```
+
+ExtendScript 基于 ES3，`final` 在 FutureReservedWord 列表里。对象字面量用它会直接语法错误。
+
+**最坑的是 `node --check` 检测不出来**——它按 ES2020 解析，`final` 早已不是保留字。同类的还有 `class`、`enum`、`public`、`static`、`super`、`import`、`export`、`float`、`int` 等 30 个词。
+
+改完 jsx 跑一遍这个：
+
+```bash
+grep -nE "\b(abstract|boolean|byte|char|class|const|debugger|double|enum|export|extends|final|float|goto|implements|import|int|interface|long|native|package|private|protected|public|short|static|super|synchronized|throws|transient|volatile)\b" host.jsx
+```
+
+**症状对照**：面板报 `EvalScript error.` 且没有任何细节，一律先怀疑 jsx 整体加载失败（语法错误），而不是业务逻辑出错。业务异常会带具体文字。
+
+**7. `doc.layers` 是活集合，不能边遍历边删**
+
+```javascript
+// 错：删完索引漂移，部分目标被跳过
+for (var i = doc.layers.length - 1; i >= 0; i--) {
+    if (doc.layers[i].name === name) doc.layers[i].remove();
+}
+
+// 对：先拍快照，再统一删
+var snap = [];
+for (var i = 0; i < doc.layers.length; i++) snap.push(doc.layers[i]);
+for (var j = snap.length - 1; j >= 0; j--) { ... }
+```
+
+`doc.layers`、`doc.artLayers`、`doc.layerSets` 全是活集合。倒序遍历也救不了你——集合长度和索引会实时变化。
+
+**8. `isBackgroundLayer` 是可写状态，不能当稳定判据**
+
+透视：本工具给背景层加蒙版前要执行 `isBackgroundLayer = false` 解锁，**这个改动会存进文件**。下次运行再用 `isBackgroundLayer === true` 判断"哪些图层是背景"，背景层就被当成普通图层删掉了，然后 `mat` 顶上来冒充背景。
+
+正确做法是多判据兜底：
+
+1. 最底层图层（`doc.layers[doc.layers.length - 1]`）无条件保留——背景永远在最底下
+2. 名字匹配「背景」/「background」
+3. 如果算出"所有图层都该删"，说明判据失效，直接放弃清理
+
+**通用原则：不要拿会被自己代码改变的状态当判据。**
+
 ## 用 AI 继续改这个项目
 
 把整个仓库丢给任意支持读代码的 AI，附上下面的背景，它就能接手。
@@ -191,10 +247,15 @@ ExtendScript 没有 `encodeURIComponent`，`host.jsx` 里手写了一套 UTF-8 �
 
 硬约束：
 - ExtendScript 是 ES3，不能用 let/const/箭头函数/模板字符串/JSON 对象
+- 同样不能用 ES3 保留字做标识符：final、class、enum、public、static、super 等
+  （用了会让整份 jsx 解析失败，面板只显示 "EvalScript error."）
+  node --check 检测不出来，改完必须 grep 一遍保留字
 - 两份 jsx 是同一套逻辑的两份拷贝，改逻辑必须同步改
 - 菜单版交付前必须转 GBK 编码，CEP 版保持 UTF-8
 - CEP 的 evalScript 不能传非 ASCII，中文必须走 URL 编码
 - 图层跨文档复制用 duplicate(destDoc)，不要传第二个参数
+- doc.layers 是活集合，批量删除必须先拍快照再删
+- isBackgroundLayer 会被 Alpha 处理改成 false 并存盘，不要拿它当背景层的判据
 ```
 
 ### 常见改动入口
@@ -205,6 +266,7 @@ ExtendScript 没有 `encodeURIComponent`，`host.jsx` 里手写了一套 UTF-8 �
 | 改配对规则（比如加前缀匹配） | `ppsKey()` / `stripExt()` |
 | 改图层顺序 | `ppsGroupIntoAov()` 里的 `move` 调用 |
 | 加新的图层类型 | 在 `ppsProcessOne()` 里追加一次 `ppsPlaceAsLayer()` 调用 |
+| 改图层清理规则 | `ppsCleanOtherLayers()`（哪些层该保留） |
 | 改面板 UI | `host/index.html` + `css/style.css` + `js/main.js` |
 | 加导出日志功能 | 在 `js/main.js` 的 `log()` 里追加写文件逻辑 |
 
